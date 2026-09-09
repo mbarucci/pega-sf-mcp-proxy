@@ -58,6 +58,9 @@ def get_access_token() -> str:
 
     logger.info("Requesting new access token from Salesforce")
 
+    if not SF_CLIENT_ID or not SF_CLIENT_SECRET:
+        raise ValueError("SF_CLIENT_ID and SF_CLIENT_SECRET environment variables not configured")
+
     token_url = f"{SF_ORG_URL}/services/oauth2/token"
 
     # Use Client Credentials grant type
@@ -72,16 +75,20 @@ def get_access_token() -> str:
         response.raise_for_status()
     except requests.exceptions.RequestException as e:
         logger.error(f"Token request failed: {e}")
-        raise HTTPException(status_code=503, detail="Failed to obtain Salesforce token")
+        raise ValueError(f"Failed to obtain Salesforce token: {str(e)}")
 
     data = response.json()
 
     if "error" in data:
-        logger.error(f"OAuth error: {data.get('error')} - {data.get('error_description')}")
-        raise HTTPException(status_code=503, detail=f"OAuth error: {data['error']}")
+        error_desc = data.get('error_description', data.get('error'))
+        logger.error(f"OAuth error: {data.get('error')} - {error_desc}")
+        raise ValueError(f"OAuth error: {data.get('error')} - {error_desc}")
 
     access_token = data.get("access_token")
     expires_in = data.get("expires_in", 3600)
+
+    if not access_token:
+        raise ValueError("No access_token in Salesforce response")
 
     # Cache the token
     _token_cache["access_token"] = access_token
