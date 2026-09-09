@@ -362,12 +362,15 @@ async def mcp_handler(request: Request):
                     "id": req_id
                 }
             except Exception as tool_error:
-                logger.error(f"Tool execution error: {tool_error}")
+                import traceback
+                error_msg = str(tool_error) or type(tool_error).__name__
+                error_trace = traceback.format_exc()
+                logger.error(f"Tool execution error: {error_msg}\n{error_trace}")
                 response = {
                     "jsonrpc": "2.0",
                     "error": {
                         "code": -32603,
-                        "message": f"Tool execution failed: {str(tool_error)}"
+                        "message": f"Tool execution failed: {error_msg}"
                     },
                     "id": req_id
                 }
