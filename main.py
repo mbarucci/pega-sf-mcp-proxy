@@ -40,6 +40,10 @@ SF_ORG_URL = os.getenv("SF_ORG_URL", "https://mbmconsulting-dev-ed.develop.my.sa
 # MCP Protocol version
 MCP_PROTOCOL_VERSION = "2025-03-26"
 
+# Salesforce credentials from environment
+SF_USERNAME = os.getenv("SF_USERNAME")
+SF_PASSWORD = os.getenv("SF_PASSWORD")
+
 # In-memory token cache (for this example)
 _token_cache = {
     "access_token": None,
@@ -48,7 +52,7 @@ _token_cache = {
 
 
 def get_access_token() -> str:
-    """Get or refresh Salesforce access token using Client Credentials flow"""
+    """Get or refresh Salesforce access token using Resource Owner Password Credentials flow"""
 
     # Check if we have a valid cached token
     if _token_cache["access_token"] and _token_cache["expires_at"]:
@@ -58,16 +62,18 @@ def get_access_token() -> str:
 
     logger.info("Requesting new access token from Salesforce")
 
-    if not SF_CLIENT_ID or not SF_CLIENT_SECRET:
-        raise ValueError("SF_CLIENT_ID and SF_CLIENT_SECRET environment variables not configured")
+    if not SF_CLIENT_ID or not SF_CLIENT_SECRET or not SF_USERNAME or not SF_PASSWORD:
+        raise ValueError("SF_CLIENT_ID, SF_CLIENT_SECRET, SF_USERNAME, and SF_PASSWORD environment variables required")
 
     token_url = f"{SF_ORG_URL}/services/oauth2/token"
 
-    # Use Client Credentials grant type
+    # Use Resource Owner Password Credentials grant type
     payload = {
-        "grant_type": "client_credentials",
+        "grant_type": "password",
         "client_id": SF_CLIENT_ID,
         "client_secret": SF_CLIENT_SECRET,
+        "username": SF_USERNAME,
+        "password": SF_PASSWORD,
     }
 
     try:
