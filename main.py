@@ -36,23 +36,22 @@ app.add_middleware(
 SF_CLIENT_ID = os.getenv("SF_CLIENT_ID")
 SF_CLIENT_SECRET = os.getenv("SF_CLIENT_SECRET")
 SF_ORG_URL = os.getenv("SF_ORG_URL", "https://mbmconsulting-dev-ed.develop.my.salesforce.com")
+SF_ACCESS_TOKEN = os.getenv("SF_ACCESS_TOKEN")
+SF_REFRESH_TOKEN = os.getenv("SF_REFRESH_TOKEN")
 
 # MCP Protocol version
 MCP_PROTOCOL_VERSION = "2025-03-26"
 
-# Salesforce credentials from environment
-SF_USERNAME = os.getenv("SF_USERNAME")
-SF_PASSWORD = os.getenv("SF_PASSWORD")
-
 # In-memory token cache (for this example)
 _token_cache = {
-    "access_token": None,
+    "access_token": SF_ACCESS_TOKEN,
+    "refresh_token": SF_REFRESH_TOKEN,
     "expires_at": None
 }
 
 
 def get_access_token() -> str:
-    """Get or refresh Salesforce access token using Resource Owner Password Credentials flow"""
+    """Get or refresh Salesforce access token using Authorization Code Flow with refresh token"""
 
     # Check if we have a valid cached token
     if _token_cache["access_token"] and _token_cache["expires_at"]:
@@ -60,27 +59,26 @@ def get_access_token() -> str:
             logger.info("Using cached access token")
             return _token_cache["access_token"]
 
-    logger.info("Requesting new access token from Salesforce")
+    logger.info("Refreshing access token from Salesforce")
 
-    if not SF_CLIENT_ID or not SF_CLIENT_SECRET or not SF_USERNAME or not SF_PASSWORD:
-        raise ValueError("SF_CLIENT_ID, SF_CLIENT_SECRET, SF_USERNAME, and SF_PASSWORD environment variables required")
+    if not SF_CLIENT_ID or not SF_CLIENT_SECRET or not _token_cache["refresh_token"]:
+        raise ValueError("SF_CLIENT_ID, SF_CLIENT_SECRET, and SF_REFRESH_TOKEN environment variables required")
 
     token_url = f"{SF_ORG_URL}/services/oauth2/token"
 
-    # Use Resource Owner Password Credentials grant type
+    # Use refresh_token grant type
     payload = {
-        "grant_type": "password",
+        "grant_type": "refresh_token",
         "client_id": SF_CLIENT_ID,
         "client_secret": SF_CLIENT_SECRET,
-        "username": SF_USERNAME,
-        "password": SF_PASSWORD,
+        "refresh_token": _token_cache["refresh_token"],
     }
 
     try:
         response = requests.post(token_url, data=payload, timeout=10)
         response.raise_for_status()
     except requests.exceptions.RequestException as e:
-        logger.error(f"Token request failed: {e}")
+        logger.error(f"Token refresh failed: {e}")
         raise ValueError(f"Failed to obtain Salesforce token: {str(e)}")
 
     data = response.json()
@@ -91,13 +89,15 @@ def get_access_token() -> str:
         raise ValueError(f"OAuth error: {data.get('error')} - {error_desc}")
 
     access_token = data.get("access_token")
+    refresh_token = data.get("refresh_token", _token_cache["refresh_token"])
     expires_in = data.get("expires_in", 3600)
 
     if not access_token:
         raise ValueError("No access_token in Salesforce response")
 
-    # Cache the token
+    # Cache the new tokens
     _token_cache["access_token"] = access_token
+    _token_cache["refresh_token"] = refresh_token
     _token_cache["expires_at"] = datetime.utcnow() + timedelta(seconds=expires_in - 60)
 
     logger.info(f"New access token obtained, expires in {expires_in}s")
