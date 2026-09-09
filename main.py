@@ -91,6 +91,112 @@ def get_access_token() -> str:
     return access_token
 
 
+async def _call_soql_query(query: str) -> dict:
+    """Execute SOQL query"""
+    if not query:
+        raise ValueError("query parameter is required")
+
+    access_token = get_access_token()
+    query_url = f"{SF_ORG_URL}/services/data/v62.0/query"
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Accept": "application/json",
+    }
+    params = {"q": query}
+
+    response = requests.get(query_url, headers=headers, params=params, timeout=30)
+    response.raise_for_status()
+    return response.json()
+
+
+async def _call_get_sobject(sobject_type: str, record_id: str) -> dict:
+    """Get a single Salesforce record"""
+    if not sobject_type or not record_id:
+        raise ValueError("sobjectType and recordId are required")
+
+    access_token = get_access_token()
+    url = f"{SF_ORG_URL}/services/data/v62.0/sobjects/{sobject_type}/{record_id}"
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Accept": "application/json",
+    }
+
+    response = requests.get(url, headers=headers, timeout=10)
+    response.raise_for_status()
+    return response.json()
+
+
+async def _call_create_sobject(sobject_type: str, data: dict) -> dict:
+    """Create a new Salesforce record"""
+    if not sobject_type or not data:
+        raise ValueError("sobjectType and data are required")
+
+    access_token = get_access_token()
+    url = f"{SF_ORG_URL}/services/data/v62.0/sobjects/{sobject_type}"
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+
+    response = requests.post(url, headers=headers, json=data, timeout=10)
+    response.raise_for_status()
+    return response.json()
+
+
+async def _call_update_sobject(sobject_type: str, record_id: str, data: dict) -> dict:
+    """Update a Salesforce record"""
+    if not sobject_type or not record_id or not data:
+        raise ValueError("sobjectType, recordId, and data are required")
+
+    access_token = get_access_token()
+    url = f"{SF_ORG_URL}/services/data/v62.0/sobjects/{sobject_type}/{record_id}"
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+
+    response = requests.patch(url, headers=headers, json=data, timeout=10)
+    response.raise_for_status()
+
+    if response.status_code == 204:
+        return {"success": True, "message": "Record updated"}
+
+    return response.json()
+
+
+async def _call_delete_sobject(sobject_type: str, record_id: str) -> dict:
+    """Delete a Salesforce record"""
+    if not sobject_type or not record_id:
+        raise ValueError("sobjectType and recordId are required")
+
+    access_token = get_access_token()
+    url = f"{SF_ORG_URL}/services/data/v62.0/sobjects/{sobject_type}/{record_id}"
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Accept": "application/json",
+    }
+
+    response = requests.delete(url, headers=headers, timeout=10)
+    response.raise_for_status()
+    return {"success": True, "status_code": response.status_code}
+
+
+async def _call_get_limits() -> dict:
+    """Get organization limits"""
+    access_token = get_access_token()
+    url = f"{SF_ORG_URL}/services/data/v62.0/limits"
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Accept": "application/json",
+    }
+
+    response = requests.get(url, headers=headers, timeout=10)
+    response.raise_for_status()
+    return response.json()
+
+
 @app.post("/")
 async def mcp_handler(request: Request):
     """MCP Protocol 2025-03-26 JSON-RPC handler"""
@@ -208,6 +314,63 @@ async def mcp_handler(request: Request):
                 "result": {"resources": []},
                 "id": req_id
             }
+        elif method == "tools/call":
+            tool_name = params.get("name")
+            tool_args = params.get("arguments", {})
+
+            logger.info(f"Calling tool: {tool_name} with args: {tool_args}")
+
+            try:
+                if tool_name == "soqlQuery":
+                    result = await _call_soql_query(tool_args.get("query"))
+                elif tool_name == "getSobjectRecord":
+                    result = await _call_get_sobject(
+                        tool_args.get("sobjectType"),
+                        tool_args.get("recordId")
+                    )
+                elif tool_name == "createSobjectRecord":
+                    result = await _call_create_sobject(
+                        tool_args.get("sobjectType"),
+                        tool_args.get("data")
+                    )
+                elif tool_name == "updateSobjectRecord":
+                    result = await _call_update_sobject(
+                        tool_args.get("sobjectType"),
+                        tool_args.get("recordId"),
+                        tool_args.get("data")
+                    )
+                elif tool_name == "deleteSobjectRecord":
+                    result = await _call_delete_sobject(
+                        tool_args.get("sobjectType"),
+                        tool_args.get("recordId")
+                    )
+                elif tool_name == "getOrgLimits":
+                    result = await _call_get_limits()
+                else:
+                    raise ValueError(f"Unknown tool: {tool_name}")
+
+                response = {
+                    "jsonrpc": "2.0",
+                    "result": {
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": json.dumps(result, indent=2)
+                            }
+                        ]
+                    },
+                    "id": req_id
+                }
+            except Exception as tool_error:
+                logger.error(f"Tool execution error: {tool_error}")
+                response = {
+                    "jsonrpc": "2.0",
+                    "error": {
+                        "code": -32603,
+                        "message": f"Tool execution failed: {str(tool_error)}"
+                    },
+                    "id": req_id
+                }
         else:
             response = {
                 "jsonrpc": "2.0",
