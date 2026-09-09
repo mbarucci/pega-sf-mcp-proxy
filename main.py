@@ -2,6 +2,7 @@
 """
 Pega-Salesforce MCP Proxy
 Roteia chamadas do Pega agent para Salesforce via OAuth
+Implements MCP (Model Context Protocol) 2025-03-26
 """
 
 import os
@@ -9,10 +10,11 @@ import json
 import requests
 import logging
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, Any, Dict, List
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
 # Logging
@@ -21,10 +23,22 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Pega-Salesforce MCP Proxy")
 
+# Add CORS middleware for Pega compatibility
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # Configuration from environment variables
 SF_CLIENT_ID = os.getenv("SF_CLIENT_ID")
 SF_CLIENT_SECRET = os.getenv("SF_CLIENT_SECRET")
 SF_ORG_URL = os.getenv("SF_ORG_URL", "https://mbmconsulting-dev-ed.develop.my.salesforce.com")
+
+# MCP Protocol version
+MCP_PROTOCOL_VERSION = "2025-03-26"
 
 # In-memory token cache (for this example)
 _token_cache = {
@@ -75,6 +89,141 @@ def get_access_token() -> str:
 
     logger.info(f"New access token obtained, expires in {expires_in}s")
     return access_token
+
+
+@app.post("/")
+async def mcp_handler(request: Request):
+    """MCP Protocol 2025-03-26 JSON-RPC handler"""
+    try:
+        body = await request.json()
+    except:
+        return JSONResponse(
+            {"jsonrpc": "2.0", "error": {"code": -32700, "message": "Parse error"}, "id": None},
+            status_code=400
+        )
+
+    jsonrpc = body.get("jsonrpc", "2.0")
+    method = body.get("method")
+    params = body.get("params", {})
+    req_id = body.get("id")
+
+    logger.info(f"MCP RPC: {method}")
+
+    try:
+        if method == "initialize":
+            response = {
+                "jsonrpc": "2.0",
+                "result": {
+                    "protocolVersion": MCP_PROTOCOL_VERSION,
+                    "capabilities": {
+                        "tools": {}
+                    },
+                    "serverInfo": {
+                        "name": "pega-salesforce-mcp-proxy",
+                        "version": "1.0.0"
+                    }
+                },
+                "id": req_id
+            }
+        elif method == "tools/list":
+            response = {
+                "jsonrpc": "2.0",
+                "result": {
+                    "tools": [
+                        {
+                            "name": "soqlQuery",
+                            "description": "Execute SOQL query on Salesforce",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "query": {
+                                        "type": "string",
+                                        "description": "SOQL query string"
+                                    }
+                                },
+                                "required": ["query"]
+                            }
+                        },
+                        {
+                            "name": "getSobjectRecord",
+                            "description": "Get a single Salesforce record",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "sobjectType": {"type": "string", "description": "e.g. Account, Contact, Opportunity"},
+                                    "recordId": {"type": "string", "description": "Salesforce record ID"}
+                                },
+                                "required": ["sobjectType", "recordId"]
+                            }
+                        },
+                        {
+                            "name": "createSobjectRecord",
+                            "description": "Create a new Salesforce record",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "sobjectType": {"type": "string"},
+                                    "data": {"type": "object", "description": "Fields to set"}
+                                },
+                                "required": ["sobjectType", "data"]
+                            }
+                        },
+                        {
+                            "name": "updateSobjectRecord",
+                            "description": "Update a Salesforce record",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "sobjectType": {"type": "string"},
+                                    "recordId": {"type": "string"},
+                                    "data": {"type": "object"}
+                                },
+                                "required": ["sobjectType", "recordId", "data"]
+                            }
+                        },
+                        {
+                            "name": "deleteSobjectRecord",
+                            "description": "Delete a Salesforce record",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "sobjectType": {"type": "string"},
+                                    "recordId": {"type": "string"}
+                                },
+                                "required": ["sobjectType", "recordId"]
+                            }
+                        },
+                        {
+                            "name": "getOrgLimits",
+                            "description": "Get Salesforce organization limits",
+                            "inputSchema": {"type": "object"}
+                        }
+                    ]
+                },
+                "id": req_id
+            }
+        elif method == "resources/list":
+            response = {
+                "jsonrpc": "2.0",
+                "result": {"resources": []},
+                "id": req_id
+            }
+        else:
+            response = {
+                "jsonrpc": "2.0",
+                "error": {"code": -32601, "message": f"Method not found: {method}"},
+                "id": req_id
+            }
+
+        logger.info(f"MCP Response: {response}")
+        return JSONResponse(response)
+
+    except Exception as e:
+        logger.error(f"MCP error: {e}")
+        return JSONResponse(
+            {"jsonrpc": "2.0", "error": {"code": -32603, "message": str(e)}, "id": req_id},
+            status_code=500
+        )
 
 
 @app.get("/health")
