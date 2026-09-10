@@ -246,6 +246,21 @@ async def _call_get_limits() -> dict:
     return response.json()
 
 
+@app.get("/health")
+async def health_check():
+    """Health check endpoint"""
+    return {
+        "status": "ok",
+        "has_client_id": bool(SF_CLIENT_ID),
+        "has_client_secret": bool(SF_CLIENT_SECRET),
+        "has_access_token": bool(SF_ACCESS_TOKEN),
+        "has_refresh_token": bool(SF_REFRESH_TOKEN),
+        "cache_state": {
+            "access_token": bool(_token_cache.get("access_token")),
+            "refresh_token": bool(_token_cache.get("refresh_token"))
+        }
+    }
+
 @app.post("/")
 @app.post("/refresh-tokens")
 async def refresh_tokens_endpoint() -> JSONResponse:
