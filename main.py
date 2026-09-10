@@ -32,12 +32,35 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Configuration from environment variables
-SF_CLIENT_ID = os.getenv("SF_CLIENT_ID")
-SF_CLIENT_SECRET = os.getenv("SF_CLIENT_SECRET")
+# Google Secret Manager (Optional - fallback to env vars)
+def get_secret(secret_name: str) -> Optional[str]:
+    """Retrieve secret from Google Secret Manager or environment variable"""
+    # Try environment variable first
+    env_key = f"SF_{secret_name.upper()}"
+    if os.getenv(env_key):
+        return os.getenv(env_key)
+
+    # Try Secret Manager
+    try:
+        from google.cloud import secretmanager
+        project_id = os.getenv("GCP_PROJECT_ID")
+        if not project_id:
+            return None
+
+        client = secretmanager.SecretManagerServiceClient()
+        name = f"projects/{project_id}/secrets/{secret_name}/versions/latest"
+        response = client.access_secret_version(request={"name": name})
+        return response.payload.data.decode("UTF-8")
+    except Exception as e:
+        logger.warning(f"Could not retrieve secret {secret_name} from Secret Manager: {e}")
+        return None
+
+# Configuration from environment variables or Secret Manager
+SF_CLIENT_ID = get_secret("client_id") or os.getenv("SF_CLIENT_ID")
+SF_CLIENT_SECRET = get_secret("client_secret") or os.getenv("SF_CLIENT_SECRET")
 SF_ORG_URL = os.getenv("SF_ORG_URL", "https://mbmconsulting-dev-ed.develop.my.salesforce.com")
-SF_ACCESS_TOKEN = os.getenv("SF_ACCESS_TOKEN")
-SF_REFRESH_TOKEN = os.getenv("SF_REFRESH_TOKEN")
+SF_ACCESS_TOKEN = get_secret("access_token") or os.getenv("SF_ACCESS_TOKEN")
+SF_REFRESH_TOKEN = get_secret("refresh_token") or os.getenv("SF_REFRESH_TOKEN")
 
 # MCP Protocol version
 MCP_PROTOCOL_VERSION = "2025-03-26"
