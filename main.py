@@ -32,28 +32,32 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Google Secret Manager (Optional - fallback to env vars)
+# Google Secret Manager (Primary) - fallback to env vars
 def get_secret(secret_name: str) -> Optional[str]:
-    """Retrieve secret from Google Secret Manager or environment variable"""
-    # Try environment variable first
-    env_key = f"SF_{secret_name.upper()}"
-    if os.getenv(env_key):
-        return os.getenv(env_key)
+    """Retrieve secret from Google Secret Manager first, then environment variable as fallback"""
 
-    # Try Secret Manager
+    # Try Secret Manager FIRST (primary source)
     try:
         from google.cloud import secretmanager
         project_id = os.getenv("GCP_PROJECT_ID")
-        if not project_id:
-            return None
-
-        client = secretmanager.SecretManagerServiceClient()
-        name = f"projects/{project_id}/secrets/{secret_name}/versions/latest"
-        response = client.access_secret_version(request={"name": name})
-        return response.payload.data.decode("UTF-8")
+        if project_id:
+            client = secretmanager.SecretManagerServiceClient()
+            name = f"projects/{project_id}/secrets/{secret_name}/versions/latest"
+            response = client.access_secret_version(request={"name": name})
+            secret_value = response.payload.data.decode("UTF-8")
+            logger.info(f"✅ Loaded {secret_name} from Secret Manager")
+            return secret_value
     except Exception as e:
-        logger.warning(f"Could not retrieve secret {secret_name} from Secret Manager: {e}")
-        return None
+        logger.debug(f"Secret Manager fallback for {secret_name}: {e}")
+
+    # Fallback to environment variable
+    env_key = f"SF_{secret_name.upper()}"
+    if os.getenv(env_key):
+        logger.info(f"⚠️  Loaded {secret_name} from env var (Secret Manager unavailable)")
+        return os.getenv(env_key)
+
+    logger.warning(f"❌ Secret {secret_name} not found in Secret Manager or env vars")
+    return None
 
 # Configuration from environment variables or Secret Manager
 SF_CLIENT_ID = get_secret("client_id") or os.getenv("SF_CLIENT_ID")
