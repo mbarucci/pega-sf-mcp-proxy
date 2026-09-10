@@ -261,6 +261,35 @@ async def health_check():
         }
     }
 
+@app.post("/debug-refresh")
+async def debug_refresh() -> JSONResponse:
+    """Debug endpoint - shows actual error"""
+    try:
+        token_url = f"{SF_ORG_URL}/services/oauth2/token"
+        payload = {
+            "grant_type": "refresh_token",
+            "client_id": SF_CLIENT_ID,
+            "client_secret": SF_CLIENT_SECRET,
+            "refresh_token": _token_cache.get("refresh_token"),
+        }
+
+        logger.info(f"🔍 DEBUG: URL={token_url}, payload keys={list(payload.keys())}")
+        response = requests.post(token_url, data=payload, timeout=30)
+        response_text = response.text
+
+        logger.info(f"Response status={response.status_code}, body={response_text[:200]}")
+
+        return JSONResponse({
+            "url": token_url,
+            "status_code": response.status_code,
+            "response": response_text[:500]
+        })
+    except Exception as e:
+        return JSONResponse({
+            "error": str(e),
+            "type": type(e).__name__
+        }, status_code=500)
+
 @app.post("/")
 @app.post("/refresh-tokens")
 async def refresh_tokens_endpoint() -> JSONResponse:
