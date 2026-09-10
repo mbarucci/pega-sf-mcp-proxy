@@ -77,12 +77,52 @@ MCP_PROTOCOL_VERSION = "2025-03-26"
 _token_cache = {
     "access_token": SF_ACCESS_TOKEN,
     "refresh_token": SF_REFRESH_TOKEN,
-    "expires_at": None
+    "expires_at": None,
+    "last_proactive_refresh": None  # Track when we last did proactive refresh
 }
+
+
+def _do_refresh_token() -> None:
+    """Internal function to refresh both access and refresh tokens from Salesforce"""
+    if not SF_CLIENT_ID or not SF_CLIENT_SECRET or not _token_cache["refresh_token"]:
+        raise ValueError("Missing SF credentials or refresh_token")
+
+    token_url = f"{SF_ORG_URL}/services/oauth2/token"
+    payload = {
+        "grant_type": "refresh_token",
+        "client_id": SF_CLIENT_ID,
+        "client_secret": SF_CLIENT_SECRET,
+        "refresh_token": _token_cache["refresh_token"],
+    }
+
+    response = requests.post(token_url, data=payload, timeout=10)
+    response.raise_for_status()
+
+    data = response.json()
+    if "error" in data:
+        raise ValueError(f"Salesforce OAuth error: {data.get('error')} - {data.get('error_description')}")
+
+    new_access_token = data.get("access_token")
+    new_refresh_token = data.get("refresh_token", _token_cache["refresh_token"])
+
+    if not new_access_token:
+        raise ValueError("No access_token in Salesforce response")
+
+    _token_cache["access_token"] = new_access_token
+    _token_cache["refresh_token"] = new_refresh_token
+    _token_cache["expires_at"] = datetime.utcnow() + timedelta(seconds=3600 - 60)
+    logger.info("✅ Tokens refreshed successfully (proactive)")
 
 
 def get_access_token() -> str:
     """Get or refresh Salesforce access token using Authorization Code Flow with refresh token"""
+
+    # Always try to refresh tokens (keeps both access and refresh tokens fresh)
+    try:
+        logger.info("🔄 Attempting proactive token refresh...")
+        _do_refresh_token()
+    except Exception as e:
+        logger.warning(f"⚠️ Proactive refresh failed (using cached token): {e}")
 
     # Check if we have a valid cached token
     if _token_cache["access_token"] and _token_cache["expires_at"]:
