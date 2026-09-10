@@ -234,6 +234,80 @@ async def _call_get_limits() -> dict:
 
 
 @app.post("/")
+@app.post("/refresh-tokens")
+async def refresh_tokens_endpoint() -> JSONResponse:
+    """Endpoint para renovar tokens Salesforce via Cloud Scheduler"""
+    try:
+        logger.info("🔄 Token refresh requested via endpoint")
+
+        current_refresh_token = _token_cache.get("refresh_token")
+        if not current_refresh_token:
+            return JSONResponse(
+                {"status": "error", "message": "No refresh token available"},
+                status_code=400
+            )
+
+        token_url = f"{SF_ORG_URL}/services/oauth2/token"
+        payload = {
+            "grant_type": "refresh_token",
+            "client_id": SF_CLIENT_ID,
+            "client_secret": SF_CLIENT_SECRET,
+            "refresh_token": current_refresh_token,
+        }
+
+        logger.info(f"Requesting new tokens from Salesforce...")
+        response = requests.post(token_url, data=payload, timeout=30)
+        response.raise_for_status()
+
+        data = response.json()
+
+        if "error" in data:
+            error_msg = f"OAuth error: {data.get('error')} - {data.get('error_description')}"
+            logger.error(error_msg)
+            return JSONResponse(
+                {"status": "error", "message": error_msg},
+                status_code=400
+            )
+
+        new_access_token = data.get("access_token")
+        new_refresh_token = data.get("refresh_token", current_refresh_token)
+
+        if not new_access_token:
+            return JSONResponse(
+                {"status": "error", "message": "No access_token in response"},
+                status_code=400
+            )
+
+        _token_cache["access_token"] = new_access_token
+        _token_cache["refresh_token"] = new_refresh_token
+        _token_cache["expires_at"] = datetime.utcnow() + timedelta(seconds=3600 - 60)
+
+        logger.info("✅ Tokens refreshed and cached successfully")
+
+        return JSONResponse({
+            "status": "success",
+            "message": "Tokens refreshed successfully",
+            "timestamp": datetime.utcnow().isoformat(),
+            "access_token_prefix": new_access_token[:20] + "...",
+            "expires_in_seconds": 3600
+        })
+
+    except requests.exceptions.RequestException as e:
+        error_msg = f"Token refresh failed: {str(e)}"
+        logger.error(error_msg)
+        return JSONResponse(
+            {"status": "error", "message": error_msg},
+            status_code=500
+        )
+    except Exception as e:
+        error_msg = f"Unexpected error: {str(e)}"
+        logger.error(error_msg)
+        return JSONResponse(
+            {"status": "error", "message": error_msg},
+            status_code=500
+        )
+
+
 async def mcp_handler(request: Request):
     """MCP Protocol 2025-03-26 JSON-RPC handler"""
     try:
