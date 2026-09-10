@@ -60,11 +60,11 @@ def get_secret(secret_name: str) -> Optional[str]:
     return None
 
 # Configuration from environment variables or Secret Manager
-SF_CLIENT_ID = get_secret("client_id") or os.getenv("SF_CLIENT_ID")
-SF_CLIENT_SECRET = get_secret("client_secret") or os.getenv("SF_CLIENT_SECRET")
+SF_CLIENT_ID = get_secret("sf-client-id") or os.getenv("SF_CLIENT_ID")
+SF_CLIENT_SECRET = get_secret("sf-client-secret") or os.getenv("SF_CLIENT_SECRET")
 SF_ORG_URL = os.getenv("SF_ORG_URL", "https://mbmconsulting-dev-ed.develop.my.salesforce.com")
-SF_ACCESS_TOKEN = get_secret("access_token") or os.getenv("SF_ACCESS_TOKEN")
-SF_REFRESH_TOKEN = get_secret("refresh_token") or os.getenv("SF_REFRESH_TOKEN")
+SF_ACCESS_TOKEN = get_secret("sf-access-token") or os.getenv("SF_ACCESS_TOKEN")
+SF_REFRESH_TOKEN = get_secret("sf-refresh-token") or os.getenv("SF_REFRESH_TOKEN")
 
 # MCP Protocol version
 MCP_PROTOCOL_VERSION = "2025-03-26"
