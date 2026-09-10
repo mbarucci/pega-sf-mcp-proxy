@@ -60,11 +60,20 @@ def get_secret(secret_name: str) -> Optional[str]:
     return None
 
 # Configuration from environment variables or Secret Manager
-SF_CLIENT_ID = get_secret("sf-client-id") or os.getenv("SF_CLIENT_ID")
-SF_CLIENT_SECRET = get_secret("sf-client-secret") or os.getenv("SF_CLIENT_SECRET")
-SF_ORG_URL = os.getenv("SF_ORG_URL", "https://mbmconsulting-dev-ed.develop.my.salesforce.com")
-SF_ACCESS_TOKEN = get_secret("sf-access-token") or os.getenv("SF_ACCESS_TOKEN")
-SF_REFRESH_TOKEN = get_secret("sf-refresh-token") or os.getenv("SF_REFRESH_TOKEN")
+try:
+    SF_CLIENT_ID = get_secret("sf-client-id") or os.getenv("SF_CLIENT_ID")
+    SF_CLIENT_SECRET = get_secret("sf-client-secret") or os.getenv("SF_CLIENT_SECRET")
+    SF_ORG_URL = os.getenv("SF_ORG_URL", "https://mbmconsulting-dev-ed.develop.my.salesforce.com")
+    SF_ACCESS_TOKEN = get_secret("sf-access-token") or os.getenv("SF_ACCESS_TOKEN")
+    SF_REFRESH_TOKEN = get_secret("sf-refresh-token") or os.getenv("SF_REFRESH_TOKEN")
+    logger.info(f"✅ Loaded secrets: HAS_TOKENS={bool(SF_ACCESS_TOKEN and SF_REFRESH_TOKEN)}")
+except Exception as e:
+    logger.error(f"❌ Error loading secrets: {e}", exc_info=True)
+    SF_CLIENT_ID = os.getenv("SF_CLIENT_ID")
+    SF_CLIENT_SECRET = os.getenv("SF_CLIENT_SECRET")
+    SF_ORG_URL = os.getenv("SF_ORG_URL", "https://mbmconsulting-dev-ed.develop.my.salesforce.com")
+    SF_ACCESS_TOKEN = os.getenv("SF_ACCESS_TOKEN")
+    SF_REFRESH_TOKEN = os.getenv("SF_REFRESH_TOKEN")
 
 # MCP Protocol version
 MCP_PROTOCOL_VERSION = "2025-03-26"
