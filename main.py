@@ -360,6 +360,7 @@ async def refresh_tokens_endpoint() -> JSONResponse:
         )
 
 
+@app.post("/mcp")
 async def mcp_handler(request: Request):
     """MCP Protocol 2025-03-26 JSON-RPC handler"""
     try:
