@@ -59,13 +59,16 @@ def get_secret(secret_name: str) -> Optional[str]:
     logger.warning(f"❌ Secret {secret_name} not found in Secret Manager or env vars")
     return None
 
-# Configuration - ALWAYS from Secret Manager (no fallback)
-SF_CLIENT_ID = get_secret("sf-client-id")
-SF_CLIENT_SECRET = get_secret("sf-client-secret")
+# Configuration - Secret Manager primary, fallback to env vars
+SF_CLIENT_ID = get_secret("sf-client-id") or os.getenv("SF_CLIENT_ID")
+SF_CLIENT_SECRET = get_secret("sf-client-secret") or os.getenv("SF_CLIENT_SECRET")
 SF_ORG_URL = os.getenv("SF_ORG_URL", "https://mbmconsulting-dev-ed.develop.my.salesforce.com")
-SF_ACCESS_TOKEN = get_secret("sf-access-token")
-SF_REFRESH_TOKEN = get_secret("sf-refresh-token")
-logger.info(f"✅ Loaded from Secret Manager: CLIENT_ID={bool(SF_CLIENT_ID)}, TOKENS={bool(SF_ACCESS_TOKEN and SF_REFRESH_TOKEN)}")
+SF_ACCESS_TOKEN = get_secret("sf-access-token") or os.getenv("SF_ACCESS_TOKEN")
+SF_REFRESH_TOKEN = get_secret("sf-refresh-token") or os.getenv("SF_REFRESH_TOKEN")
+
+logger.info(f"DEBUG: ENV SF_CLIENT_ID={os.getenv('SF_CLIENT_ID')[:30] if os.getenv('SF_CLIENT_ID') else None}...")
+logger.info(f"DEBUG: ENV SF_REFRESH_TOKEN={os.getenv('SF_REFRESH_TOKEN')[:30] if os.getenv('SF_REFRESH_TOKEN') else None}...")
+logger.info(f"✅ Config loaded: CLIENT_ID={bool(SF_CLIENT_ID)}, TOKENS={bool(SF_ACCESS_TOKEN and SF_REFRESH_TOKEN)}")
 
 # MCP Protocol version
 MCP_PROTOCOL_VERSION = "2025-03-26"
