@@ -77,7 +77,7 @@ MCP_PROTOCOL_VERSION = "2025-03-26"
 _token_cache = {
     "access_token": SF_ACCESS_TOKEN,
     "refresh_token": SF_REFRESH_TOKEN,
-    "expires_at": None,
+    "expires_at": datetime.utcnow() + timedelta(seconds=3600 - 60) if SF_ACCESS_TOKEN else None,
     "last_proactive_refresh": None  # Track when we last did proactive refresh
 }
 
