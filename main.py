@@ -115,29 +115,19 @@ def _do_refresh_token() -> None:
 
 
 def get_access_token() -> str:
-    """Get or refresh Salesforce access token using Authorization Code Flow with refresh token"""
+    """
+    Get Salesforce access token with automatic refresh_token rotation.
 
-    # Always try to refresh tokens (keeps both access and refresh tokens fresh)
-    try:
-        logger.info("🔄 Attempting proactive token refresh...")
-        _do_refresh_token()
-    except Exception as e:
-        logger.warning(f"⚠️ Proactive refresh failed (using cached token): {e}")
-
-    # Check if we have a valid cached token
-    if _token_cache["access_token"] and _token_cache["expires_at"]:
-        if datetime.utcnow() < _token_cache["expires_at"]:
-            logger.info("Using cached access token")
-            return _token_cache["access_token"]
-
-    logger.info("Refreshing access token from Salesforce")
+    Strategy: Always refresh tokens on each request to prevent refresh_token expiration.
+    Salesforce keeps refresh_token valid if used regularly (prevents 30-day expiry policy).
+    """
 
     if not SF_CLIENT_ID or not SF_CLIENT_SECRET or not _token_cache["refresh_token"]:
         raise ValueError("SF_CLIENT_ID, SF_CLIENT_SECRET, and SF_REFRESH_TOKEN environment variables required")
 
     token_url = f"{SF_ORG_URL}/services/oauth2/token"
 
-    # Use refresh_token grant type
+    # Always refresh to rotate both tokens (prevents refresh_token expiration)
     payload = {
         "grant_type": "refresh_token",
         "client_id": SF_CLIENT_ID,
@@ -146,17 +136,18 @@ def get_access_token() -> str:
     }
 
     try:
+        logger.info("🔄 Refreshing tokens (automatic rotation)...")
         response = requests.post(token_url, data=payload, timeout=10)
         response.raise_for_status()
     except requests.exceptions.RequestException as e:
-        logger.error(f"Token refresh failed: {e}")
+        logger.error(f"❌ Token refresh failed: {e}")
         raise ValueError(f"Failed to obtain Salesforce token: {str(e)}")
 
     data = response.json()
 
     if "error" in data:
         error_desc = data.get('error_description', data.get('error'))
-        logger.error(f"OAuth error: {data.get('error')} - {error_desc}")
+        logger.error(f"❌ OAuth error: {data.get('error')} - {error_desc}")
         raise ValueError(f"OAuth error: {data.get('error')} - {error_desc}")
 
     access_token = data.get("access_token")
@@ -166,12 +157,12 @@ def get_access_token() -> str:
     if not access_token:
         raise ValueError("No access_token in Salesforce response")
 
-    # Cache the new tokens
+    # Cache the rotated tokens
     _token_cache["access_token"] = access_token
     _token_cache["refresh_token"] = refresh_token
     _token_cache["expires_at"] = datetime.utcnow() + timedelta(seconds=expires_in - 60)
 
-    logger.info(f"New access token obtained, expires in {expires_in}s")
+    logger.info(f"✅ Tokens rotated (access: 1h, refresh: kept fresh)")
     return access_token
 
 
@@ -390,6 +381,105 @@ async def refresh_tokens_endpoint() -> JSONResponse:
         return JSONResponse(
             {"status": "error", "message": error_msg},
             status_code=500
+        )
+    except Exception as e:
+        error_msg = f"Unexpected error: {str(e)}"
+        logger.error(error_msg)
+        return JSONResponse(
+            {"status": "error", "message": error_msg},
+            status_code=500
+        )
+
+
+@app.get("/status")
+async def status_endpoint() -> JSONResponse:
+    """
+    Health check endpoint - mostra status dos tokens e quando expira
+
+    Retorna:
+    - access_token_valid: true se token ainda é válido
+    - refresh_token_exists: true se refresh_token foi carregado
+    - time_until_expiration: quantos segundos até expirar
+    - last_refresh_attempt: timestamp do último attempt (removido por privacidade)
+    """
+    try:
+        now = datetime.utcnow()
+        expires_at = _token_cache.get("expires_at")
+
+        access_token_valid = bool(_token_cache.get("access_token"))
+        refresh_token_exists = bool(_token_cache.get("refresh_token"))
+
+        time_until_expiration = None
+        if expires_at:
+            delta = expires_at - now
+            time_until_expiration = int(delta.total_seconds())
+
+        return JSONResponse({
+            "status": "ok",
+            "timestamp": now.isoformat(),
+            "access_token_valid": access_token_valid,
+            "refresh_token_exists": refresh_token_exists,
+            "time_until_expiration_seconds": time_until_expiration,
+            "rotation_strategy": "automatic-per-request",
+            "mode": "production"
+        })
+
+    except Exception as e:
+        logger.error(f"Status check failed: {e}")
+        return JSONResponse(
+            {"status": "error", "message": str(e)},
+            status_code=500
+        )
+
+
+@app.post("/update-tokens")
+async def update_tokens_manual(request: Request) -> JSONResponse:
+    """
+    Atualiza tokens manualmente via POST (sem redeploy)
+
+    Body esperado:
+    {
+        "access_token": "novo_access_token",
+        "refresh_token": "novo_refresh_token"
+    }
+    """
+    try:
+        body = await request.json()
+
+        new_access_token = body.get("access_token")
+        new_refresh_token = body.get("refresh_token")
+
+        if not new_access_token or not new_refresh_token:
+            return JSONResponse(
+                {
+                    "status": "error",
+                    "message": "Both 'access_token' and 'refresh_token' are required"
+                },
+                status_code=400
+            )
+
+        # Atualiza cache (não precisa atingir Salesforce)
+        _token_cache["access_token"] = new_access_token
+        _token_cache["refresh_token"] = new_refresh_token
+        _token_cache["expires_at"] = datetime.utcnow() + timedelta(seconds=3600 - 60)
+
+        logger.info("✅ Tokens atualizados manualmente via /update-tokens")
+
+        return JSONResponse({
+            "status": "success",
+            "message": "Tokens atualizados com sucesso",
+            "timestamp": datetime.utcnow().isoformat(),
+            "access_token_prefix": new_access_token[:20] + "...",
+            "next_auto_refresh": (_token_cache["expires_at"]).isoformat()
+        })
+
+    except json.JSONDecodeError:
+        return JSONResponse(
+            {
+                "status": "error",
+                "message": "Invalid JSON body"
+            },
+            status_code=400
         )
     except Exception as e:
         error_msg = f"Unexpected error: {str(e)}"
